@@ -71,7 +71,7 @@ export function renderPostsPageComponent({ appEl }) {
     });
   }
 
-  // Лайки
+  // Лайки — без перезагрузки всей ленты
   for (let likeButton of document.querySelectorAll(".like-button")) {
     likeButton.addEventListener("click", () => {
       if (!user) {
@@ -81,18 +81,23 @@ export function renderPostsPageComponent({ appEl }) {
 
       const postId = likeButton.dataset.postId;
       const token = `Bearer ${user.token}`;
-
       const post = posts.find((p) => p.id === postId);
+
+      likeButton.disabled = true;
+
       const likeRequest = post.isLiked
         ? dislikePost({ postId, token })
         : likePost({ postId, token });
 
       likeRequest
-        .then(() => {
-          goToPage(POSTS_PAGE);
+        .then((updatedPost) => {
+          post.likes = updatedPost.likes;
+          post.isLiked = updatedPost.isLiked;
+          renderPostsPageComponent({ appEl });
         })
         .catch((error) => {
           console.error(error);
+          likeButton.disabled = false;
         });
     });
   }
@@ -103,12 +108,9 @@ export function renderPostsPageComponent({ appEl }) {
       const overlay = document.createElement("div");
       overlay.classList.add("lightbox-overlay");
       overlay.innerHTML = `<img class="lightbox-image" src="${postImage.src}">`;
-
-      // Клик по затемнению закрывает лайтбокс
       overlay.addEventListener("click", () => {
         overlay.remove();
       });
-
       document.body.appendChild(overlay);
     });
   }
