@@ -1,122 +1,116 @@
-// Замени на свой, чтобы получить независимый от других набор данных.
-// "боевая" версия инстапро лежит в ключе prod
 const personalKey = "kris instapro";
 const baseHost = "https://webdev-hw-api.vercel.app";
 const postsHost = `${baseHost}/api/v1/${personalKey}/instapro`;
 
-export function getPosts({ token }) {
-  return fetch(postsHost, {
-    method: "GET",
-    headers: {
-      Authorization: token,
-    },
-  })
-    .then((response) => {
-      if (response.status === 401) {
-        throw new Error("Нет авторизации");
+function escapeHtml(text) {
+  return String(text)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+export function renderPostsPageComponent({ appEl }) {
+  const postsHtml = posts
+    .map((post) => {
+      const likeImage = post.isLiked
+        ? "./assets/images/like-active.svg"
+        : "./assets/images/like-not-active.svg";
+
+      const safeName = escapeHtml(post.user.name);
+      const safeDescription = escapeHtml(post.description);
+
+      return `
+        <li class="post">
+          <div class="post-header" data-user-id="${post.user.id}">
+            <img src="${post.user.imageUrl}" class="post-header__user-image">
+            <p class="post-header__user-name">${safeName}</p>
+          </div>
+          <div class="post-image-container">
+            <img class="post-image" src="${post.imageUrl}">
+          </div>
+          <div class="post-likes">
+            <button data-post-id="${post.id}" class="like-button">
+              <img src="${likeImage}">
+            </button>
+            <p class="post-likes-text">
+              Нравится: <strong>${post.likes.length}</strong>
+            </p>
+          </div>
+          <p class="post-text">
+            <span class="user-name">${safeName}</span>
+            ${safeDescription}
+          </p>
+          <p class="post-date">
+            ${post.createdAt}
+          </p>
+        </li>
+      `;
+    })
+    .join("");
+
+  const appHtml = `
+    <div class="page-container">
+      <div class="header-container"></div>
+      <ul class="posts">
+        ${postsHtml}
+      </ul>
+    </div>`;
+
+  appEl.innerHTML = appHtml;
+
+  renderHeaderComponent({
+    element: document.querySelector(".header-container"),
+  });
+
+  for (let userEl of document.querySelectorAll(".post-header")) {
+    userEl.addEventListener("click", () => {
+      goToPage(USER_POSTS_PAGE, {
+        userId: userEl.dataset.userId,
+      });
+    });
+  }
+
+  // Лайки — без перезагрузки всей ленты
+  for (let likeButton of document.querySelectorAll(".like-button")) {
+    likeButton.addEventListener("click", () => {
+      if (!user) {
+        goToPage(AUTH_PAGE);
+        return;
       }
 
-      return response.json();
-    })
-    .then((data) => {
-      return data.posts;
+      const postId = likeButton.dataset.postId;
+      const token = `Bearer ${user.token}`;
+      const post = posts.find((p) => p.id === postId);
+
+      likeButton.disabled = true;
+
+      const likeRequest = post.isLiked
+        ? dislikePost({ postId, token })
+        : likePost({ postId, token });
+
+      likeRequest
+        .then((updatedPost) => {
+          post.likes = updatedPost.likes;
+          post.isLiked = updatedPost.isLiked;
+          renderPostsPageComponent({ appEl });
+        })
+        .catch((error) => {
+          console.error(error);
+          likeButton.disabled = false;
+        });
     });
-}
+  }
 
-export function registerUser({ login, password, name, imageUrl }) {
-  return fetch(baseHost + "/api/user", {
-    method: "POST",
-    body: JSON.stringify({
-      login,
-      password,
-      name,
-      imageUrl,
-    }),
-  }).then((response) => {
-    if (response.status === 400) {
-      throw new Error("Такой пользователь уже существует");
-    }
-    return response.json();
-  });
-}
-
-export function loginUser({ login, password }) {
-  return fetch(baseHost + "/api/user/login", {
-    method: "POST",
-    body: JSON.stringify({
-      login,
-      password,
-    }),
-  }).then((response) => {
-    if (response.status === 400) {
-      throw new Error("Неверный логин или пароль");
-    }
-    return response.json();
-  });
-}
-
-// Загружает картинку в облако, возвращает url загруженной картинки
-export function uploadImage({ file }) {
-  const data = new FormData();
-  data.append("file", file);
-
-  return fetch(baseHost + "/api/upload/image", {
-    method: "POST",
-    body: data,
-  }).then((response) => {
-    return response.json();
-  });
-}
-
-export function likePost({ postId, token }) {
-  return fetch(postsHost + "/" + postId + "/like", {
-    method: "POST",
-    headers: { Authorization: token },
-  }).then((response) => {
-    if (response.status === 401) {
-      throw new Error("Нет авторизации");
-    }
-    return response.json();
-  });
-}
-
-export function dislikePost({ postId, token }) {
-  return fetch(postsHost + "/" + postId + "/dislike", {
-    method: "POST",
-    headers: { Authorization: token },
-  }).then((response) => {
-    if (response.status === 401) {
-      throw new Error("Нет авторизации");
-    }
-    return response.json();
-  });
-}
-
-export function getUserPosts({ userId, token }) {
-  return fetch(postsHost + "/user-posts/" + userId, {
-    method: "GET",
-    headers: { Authorization: token },
-  })
-    .then((response) => {
-      if (response.status === 401) {
-        throw new Error("Нет авторизации");
-      }
-      return response.json();
-    })
-    .then((data) => {
-      return data.posts;
+  // Лайтбокс: клик по фото открывает его на весь экран
+  for (let postImage of document.querySelectorAll(".post-image")) {
+    postImage.addEventListener("click", () => {
+      const overlay = document.createElement("div");
+      overlay.classList.add("lightbox-overlay");
+      overlay.innerHTML = `<img class="lightbox-image" src="${postImage.src}">`;
+      overlay.addEventListener("click", () => {
+        overlay.remove();
+      });
+      document.body.appendChild(overlay);
     });
-}
-
-export function addPost({ description, imageUrl, token }) {
-  return fetch(postsHost, {
-    method: "POST",
-    headers: { Authorization: token },
-    body: JSON.stringify({ description, imageUrl }),
-  }).then((response) => {
-    if (response.status === 401) {
-      throw new Error("Нет авторизации");
-    }
-    return response.json();
-  });
+  }
 }
